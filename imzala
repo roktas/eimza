@@ -9,10 +9,10 @@ unset CDPATH
 # ------------------------------------------------------------------------------------------------------------------------
 
 abort() {
-	local status=$1
-	shift
+	local message=$1
+	local status=${2:-1}
 
-	warn "E: $*"
+	warn "E: $message"
 	exit "$status"
 }
 
@@ -37,60 +37,60 @@ main() {
 		local akis config input output script_dir setup tmp_output tmpdir
 
 		if ! script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P); then
-			abort 3 'Could not determine the script directory.'
+			abort 'Could not determine the script directory.' 3
 		fi
 
 		case ${OSTYPE:-} in
 		darwin*)
 			# TODO: Add the macOS AKIS PKCS#11 module path and pyHanko setup.
-			abort 3 'macOS support is TODO.'
+			abort 'macOS support is TODO.' 3
 			;;
 		linux*)
 			akis=/usr/lib/libakisp11.so
 			setup='akis-linux'
 			;;
 		*)
-			abort 3 "Unsupported operating system: ${OSTYPE:-unknown}."
+			abort "Unsupported operating system: ${OSTYPE:-unknown}." 3
 			;;
 		esac
 
 		config="$script_dir/pyhanko.yml"
 
 		if ! command -v pyhanko &>/dev/null; then
-			abort 3 'pyhanko was not found in PATH.'
+			abort 'pyhanko was not found in PATH.' 3
 		fi
 
 		[[ -f $akis ]] ||
-			abort 3 "AKIS PKCS#11 module was not found: $akis"
+			abort "AKIS PKCS#11 module was not found: $akis" 3
 		[[ -f $config ]] ||
-			abort 3 "pyhanko.yml was not found next to ${0##*/}."
+			abort "pyhanko.yml was not found next to ${0##*/}." 3
 
 		if ! command -v realpath &>/dev/null; then
-			abort 3 'realpath was not found in PATH.'
+			abort 'realpath was not found in PATH.' 3
 		fi
 
 		if ! input=$(realpath -- "$1" 2>/dev/null); then
-			abort 2 "Input file not found: $1"
+			abort "Input file not found: $1" 2
 		fi
-		[[ -f $input ]] || abort 2 "Input file not found: $1"
-		[[ ${input,,} == *.pdf ]] || abort 2 'Input file must have a .pdf extension.'
+		[[ -f $input ]] || abort "Input file not found: $1" 2
+		[[ ${input,,} == *.pdf ]] || abort 'Input file must have a .pdf extension.' 2
 
 		if [[ $# -eq 2 ]]; then
-			output=$(realpath -m -- "$2") || abort 2 "Invalid output path: $2"
+			output=$(realpath -m -- "$2") || abort "Invalid output path: $2" 2
 			[[ ${output,,} == *.pdf ]] || output+=.pdf
 		else
 			output="${input%.*}-signed.pdf"
 		fi
 
 		[[ $input != "$output" ]] ||
-			abort 2 'Input and output files must be different.'
+			abort 'Input and output files must be different.' 2
 		[[ ! -e $output && ! -L $output ]] ||
-			abort 2 "Output file already exists: $output"
+			abort "Output file already exists: $output" 2
 
-		cd -- "$script_dir" || abort 3 "Could not enter the script directory: $script_dir"
+		cd -- "$script_dir" || abort "Could not enter the script directory: $script_dir" 3
 
 		tmpdir=$(mktemp -d -- "${output}.imzala-tmp-XXXXXX") ||
-			abort 3 "Could not create a temporary directory for: $output"
+			abort "Could not create a temporary directory for: $output" 3
 		tmp_output="$tmpdir/output.pdf"
 		trap 'status=$?; rm -rf -- "$tmpdir" || :; exit "$status"' EXIT
 		trap 'exit 129' HUP
@@ -117,10 +117,10 @@ main() {
 			"$tmp_output"
 
 		if ! mv -n -- "$tmp_output" "$output"; then
-			abort 3 "The validated file could not be moved to: $output"
+			abort "The validated file could not be moved to: $output" 3
 		fi
 		[[ ! -e $tmp_output ]] ||
-			abort 2 "Output file appeared before it could be created: $output"
+			abort "Output file appeared before it could be created: $output" 2
 
 		printf '\n%s\n%s\n' 'SUCCESS: Signature and timestamp validated.' "  $output"
 	)
