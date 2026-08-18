@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+[[ -z ${TRACE:-} ]] || set -x
+unset CDPATH
+
+# ------------------------------------------------------------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------------------------------------------------------------
+
+abort() {
+	local status=$1
+	shift
+
+	warn "E: $*"
+	exit "$status"
+}
+
+warn() {
+	printf '%s\n' "$*" >&2
+}
+
+# ------------------------------------------------------------------------------------------------------------------------
+# Main
+# ------------------------------------------------------------------------------------------------------------------------
+
+usage() {
+	printf 'Usage: %s INPUT.pdf [OUTPUT.pdf]\n' "${0##*/}" >&2
+	printf '%s\n' 'If OUTPUT.pdf is omitted, INPUT-signed.pdf is created next to INPUT.pdf.' >&2
+	exit 2
+}
+
+main() {
+	[[ $# -ge 1 && $# -le 2 ]] || usage
+
+	(
+		local akis config input output script_dir setup tmp_output tmpdir
+
+		if ! script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P); then
+			abort 3 'Could not determine the script directory.'
+		fi
+
+		case ${OSTYPE:-} in
+		darwin*)
+			# TODO: Add the macOS AKIS PKCS#11 module path and pyHanko setup.
+			abort 3 'macOS support is TODO.'
+			;;
+		linux*)
+			akis=/usr/lib/libakisp11.so
+			setup='akis-linux'
+			;;
+		*)
+			abort 3 "Unsupported operating system: ${OSTYPE:-unknown}."
+			;;
+		esac
+
+		config="$script_dir/pyhanko.yml"
+
+		if ! command -v pyhanko &>/dev/null; then
+			abort 3 'pyhanko was not found in PATH.'
+		fi
+
+		[[ -f $akis ]] ||
+			abort 3 "AKIS PKCS#11 module was not found: $akis"
+		[[ -f $config ]] ||
+			abort 3 "pyhanko.yml was not found next to ${0##*/}."
+
+		if ! command -v realpath &>/dev/null; then
+			abort 3 'realpath was not found in PATH.'
+		fi
+
+		if ! input=$(realpath -- "$1" 2>/dev/null); then
+			abort 2 "Input file not found: $1"
+		fi
+		[[ -f $input ]] || abort 2 "Input file not found: $1"
+		[[ ${input,,} == *.pdf ]] || abort 2 'Input file must have a .pdf extension.'
+
+		if [[ $# -eq 2 ]]; then
+			output=$(realpath -m -- "$2") || abort 2 "Invalid output path: $2"
+			[[ ${output,,} == *.pdf ]] || output+=.pdf
+		else
+			output="${input%.*}-signed.pdf"
+		fi
+
+		[[ $input != "$output" ]] ||
+			abort 2 'Input and output files must be different.'
+		[[ ! -e $output && ! -L $output ]] ||
+			abort 2 "Output file already exists: $output"
+
+		cd -- "$script_dir" || abort 3 "Could not enter the script directory: $script_dir"
+
+		tmpdir=$(mktemp -d -- "${output}.imzala-tmp-XXXXXX") ||
+			abort 3 "Could not create a temporary directory for: $output"
+		tmp_output="$tmpdir/output.pdf"
+		trap 'status=$?; rm -rf -- "$tmpdir" || :; exit "$status"' EXIT
+		trap 'exit 129' HUP
+		trap 'exit 130' INT
+		trap 'exit 131' QUIT
+		trap 'exit 143' TERM
+
+		printf '%s\n' 'Signing:' "  $input" 'Output:' "  $output" ''
+
+		pyhanko --config "$config" sign addsig \
+			--field Sig1 \
+			--use-pades \
+			--timestamp-url http://timestamp.digicert.com \
+			pkcs11 \
+			--p11-setup "$setup" \
+			"$input" \
+			"$tmp_output"
+
+		printf '%s\n\n' '' 'Validating signed PDF...'
+
+		pyhanko --config "$config" sign validate \
+			--validation-context kamusm \
+			--pretty-print \
+			"$tmp_output"
+
+		if ! mv -n -- "$tmp_output" "$output"; then
+			abort 3 "The validated file could not be moved to: $output"
+		fi
+		[[ ! -e $tmp_output ]] ||
+			abort 2 "Output file appeared before it could be created: $output"
+
+		printf '\n%s\n%s\n' 'SUCCESS: Signature and timestamp validated.' "  $output"
+	)
+}
+
+main "$@"

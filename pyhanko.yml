@@ -1,0 +1,22 @@
+pkcs11-setups:
+  akis-windows:
+    module-path: 'C:\Windows\System32\akisp11.dll'
+    token-criteria:
+      label: AKIS_04655182A91F9094
+    cert-label: 10391976242NES0
+    raw-mechanism: true
+
+  akis-linux:
+    module-path: '/usr/lib/libakisp11.so'
+    token-criteria:
+      label: AKIS_04655182A91F9094
+    cert-label: 10391976242NES0
+    raw-mechanism: true
+
+validation-contexts:
+  kamusm:
+    trust:
+      - 'kamusm-root-v6.crt'
+    trust-replace: false
+    other-certs:
+      - 'kamusm-nes-v6.crt'
