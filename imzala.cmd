@@ -55,12 +55,47 @@ if not exist "%CONFIG%" (
 )
 
 set "TMP_OUTPUT=%OUTPUT%.imzala-tmp-%RANDOM%-%RANDOM%.pdf"
+set "CARD_OUTPUT=%OUTPUT%.imzala-card-probe-%RANDOM%-%RANDOM%.pdf"
+set "CARD_LOG=%CARD_OUTPUT%.log"
 
 pushd "%SCRIPT_DIR%" >nul
 if errorlevel 1 (
     echo ERROR: Could not enter the script directory.
     exit /b 3
 )
+
+pyhanko --config "%CONFIG%" sign addsig ^
+  --existing-only ^
+  --field __imzala_card_probe__ ^
+  pkcs11 ^
+  --lib "C:\Windows\System32\akisp11.dll" ^
+  --token-label "AKIS_04655182A91F9094" ^
+  --cert-label "10391976242NES0" ^
+  --skip-user-pin ^
+  "%INPUT%" ^
+  "%CARD_OUTPUT%" >"%CARD_LOG%" 2>&1
+
+findstr /I /C:"No token matching criteria" "%CARD_LOG%" >nul
+if not errorlevel 1 (
+    if exist "%CARD_OUTPUT%" del /Q "%CARD_OUTPUT%" >nul 2>nul
+    if exist "%CARD_LOG%" del /Q "%CARD_LOG%" >nul 2>nul
+    echo ERROR: AKIS card or token was not found; insert the card and check the reader.
+    popd
+    exit /b 3
+)
+
+findstr /I /C:"__imzala_card_probe__" "%CARD_LOG%" | findstr /I /C:"does not exist" >nul
+if errorlevel 1 (
+    echo ERROR: AKIS card check failed.
+    type "%CARD_LOG%"
+    if exist "%CARD_OUTPUT%" del /Q "%CARD_OUTPUT%" >nul 2>nul
+    if exist "%CARD_LOG%" del /Q "%CARD_LOG%" >nul 2>nul
+    popd
+    exit /b 3
+)
+
+if exist "%CARD_OUTPUT%" del /Q "%CARD_OUTPUT%" >nul 2>nul
+if exist "%CARD_LOG%" del /Q "%CARD_LOG%" >nul 2>nul
 
 echo Signing:
 echo   %INPUT%

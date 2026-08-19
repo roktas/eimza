@@ -16,6 +16,40 @@ abort() {
 	exit "$status"
 }
 
+card() {
+	local config=$1
+	local input=$2
+	local output=$3
+	local akis=$4
+	local cert_label=$5
+	local token_label=$6
+
+	local probe
+
+	probe=$(pyhanko --config "$config" sign addsig \
+		--existing-only \
+		--field __imzala_card_probe__ \
+		pkcs11 \
+		--lib "$akis" \
+		--token-label "$token_label" \
+		--cert-label "$cert_label" \
+		--skip-user-pin \
+		"$input" \
+		"$output" 2>&1) || :
+
+	case $probe in
+	*'No token matching criteria'*)
+		abort 'AKIS card or token was not found; insert the card and check the reader.' 3
+		;;
+	*'__imzala_card_probe__'*'does not exist'*)
+		;;
+	*)
+		printf '%s\n' "$probe" >&2
+		abort 'AKIS card check failed.' 3
+		;;
+	esac
+}
+
 warn() {
 	printf '%s\n' "$*" >&2
 }
@@ -34,7 +68,7 @@ main() {
 	[[ $# -ge 1 && $# -le 2 ]] || usage
 
 	(
-		local akis config input output script_dir setup tmp_output tmpdir
+		local akis cert_label config input output script_dir setup tmp_output tmpdir token_label
 
 		if ! script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P); then
 			abort 'Could not determine the script directory.' 3
@@ -47,7 +81,9 @@ main() {
 			;;
 		linux*)
 			akis=/usr/lib/libakisp11.so
+			cert_label=10391976242NES0
 			setup='akis-linux'
+			token_label=AKIS_04655182A91F9094
 			;;
 		*)
 			abort "Unsupported operating system: ${OSTYPE:-unknown}." 3
@@ -97,6 +133,8 @@ main() {
 		trap 'exit 130' INT
 		trap 'exit 131' QUIT
 		trap 'exit 143' TERM
+
+		card "$config" "$input" "$tmpdir/card-probe.pdf" "$akis" "$cert_label" "$token_label"
 
 		printf '%s\n' 'Signing:' "  $input" 'Output:' "  $output" ''
 
